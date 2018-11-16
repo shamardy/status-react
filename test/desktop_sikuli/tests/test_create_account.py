@@ -64,3 +64,10 @@ class TestCreateAccount(BaseTestCase):
         sign_in.press_enter()
         sign_in.profile_button.click()
         profile.find_text('user_2')
+
+    @pytest.mark.testrail_id(5650)
+    def test_status_log(self):
+        sign_in = SignInView()
+        sign_in.create_account()
+        with open('/root/.local/share/Status/Status.log') as f:
+            assert 'mnemonic' not in f.read()

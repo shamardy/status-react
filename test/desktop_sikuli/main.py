@@ -55,7 +55,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--test_results_path',
                         action='store',
-                        default='/Users/adan/Desktop/desktop_e2e_results')
+                        default=os.path.dirname(os.path.abspath(__file__)))
     parser.add_argument('--linux_app_url',
                         action='store',
                         default=None)
