@@ -1,6 +1,7 @@
 (ns status-im.ui.screens.wallet.send.views
   (:require-macros [status-im.utils.views :refer [defview letsubs]])
-  (:require [re-frame.core :as re-frame]
+  (:require [clojure.string :as string]
+            [re-frame.core :as re-frame]
             [status-im.i18n :as i18n]
             [status-im.ui.components.animation :as animation]
             [status-im.ui.components.bottom-buttons.view :as bottom-buttons]
@@ -13,11 +14,15 @@
             [status-im.ui.components.toolbar.actions :as actions]
             [status-im.ui.components.toolbar.view :as toolbar]
             [status-im.ui.components.tooltip.views :as tooltip]
+            [status-im.ui.components.list.views :as list]
+            [status-im.ui.components.list.styles :as list.styles]
+            [status-im.ui.screens.chat.photos :as photos]
             [status-im.ui.screens.wallet.components.styles :as wallet.components.styles]
             [status-im.ui.screens.wallet.components.views :as components]
             [status-im.ui.screens.wallet.components.views :as wallet.components]
             [status-im.ui.screens.wallet.send.animations :as send.animations]
             [status-im.ui.screens.wallet.send.styles :as styles]
+            [status-im.ui.screens.wallet.send.events :as events]
             [status-im.ui.screens.wallet.styles :as wallet.styles]
             [status-im.ui.screens.wallet.main.views :as wallet.main.views]
             [status-im.utils.money :as money]
@@ -184,6 +189,164 @@
         [password-input-panel :t/signing-phrase-description in-progress?])
       (when in-progress? [react/view styles/processing-view])]]))
 
+(defn address-entry []
+  (reagent/create-class
+   {:reagent-render
+    (fn [opts]
+      [react/view [react/text "Select address"]])}))
+
+;; ----------------------------------------------------------------------
+;; the new views
+;; ----------------------------------------------------------------------
+
+(defn simple-tab-navigator
+  "A simple tab navigator that that takes a map of tabs and the key of
+  the starting tab 
+
+  Example:
+  (simple-tab-navigator
+   {:main {:name \"Main\" :component (fn [] [react/text \"Hello\"])}
+    :other {:name \"Other\" :component (fn [] [react/text \"Goodbye\"])}}
+   :main)"
+  [tab-map default-key]
+  {:pre [(keyword? default-key)]}
+  (let [tab-key (reagent/atom default-key)]
+    (fn [tab-map _]
+      (let [tab-name @tab-key]
+        [react/view {:flex 1}
+         ;; tabs row
+         [react/view {:flex-direction :row}
+          (map (fn [[key {:keys [name component]}]]
+                 (let [current? (= key tab-name)]
+                   ^{:key (str key)}
+                   [react/view {:flex             1
+                                :background-color colors/black-transparent}
+                    [react/touchable-highlight {:on-press #(reset! tab-key key)
+                                                :disabled current?}
+                     [react/view {:height              44
+                                  :align-items         :center
+                                  :justify-content     :center
+                                  :border-bottom-width 2
+                                  :border-bottom-color (if current? colors/white "rgba(0,0,0,0)")}
+                      [react/text {:style {:color (if current? :white "rgba(255,255,255,0.4)")
+                                           :font-size 15}} name]]]]))
+               tab-map)]
+         (when-let [component-thunk (some-> tab-map tab-name :component)]
+           [component-thunk])]))))
+
+(defn choose-address-view
+  "A view that allows you to choose an address"
+  [{:keys [chain on-address]}]
+  {:pre [(keyword? chain) (fn? on-address)]}
+  (fn []
+    (let [address (reagent/atom "")
+          error-message (reagent/atom nil)]
+      (fn []
+        [react/view {:flex 1}
+         [react/view {:flex 1}]
+         [react/view styles/centered
+          (when @error-message
+            [tooltip/tooltip @error-message {:color        colors/white
+                                             :font-size    12
+                                             :bottom-value 15}])
+          [react/text-input
+           {:on-change-text #(do (reset! address %)
+                                 (reset! error-message nil))
+            :auto-capitalize :none
+            :auto-correct false
+            :placeholder "0x... or name.eth"
+            :placeholder-text-color "rgb(143,162,234)"
+            :multiline true
+            :max-length 42
+            :selection-color colors/green
+            :accessibility-label :recipient-address-input
+            :style styles/choose-recipient-text-input}]]
+         [react/view {:flex 1}]
+         (let [disabled? (string/blank? @address)]
+           [react/view {:flex-direction :row-reverse}
+            [react/touchable-highlight {:underlay-color colors/black-transparent
+                                        :disabled disabled?
+                                        :on-press #(events/chosen-recipient
+                                                    chain @address
+                                                    on-address
+                                                    (fn on-error [_]
+                                                      (reset! error-message (i18n/label :t/invalid-address))))
+                                        :style {:height 44
+                                                :background-color (if disabled?
+                                                                    colors/blue
+                                                                    colors/white)
+                                                :border-radius 8
+                                                :flex 0.33
+                                                :align-items :center
+                                                :justify-content :center
+                                                :margin 6}}
+             [react/text {:style {:color (if disabled? colors/white colors/blue)}}
+              (i18n/label :t/next)]]])]))))
+
+;;  #(re-frame/dispatch [:wallet/fill-request-from-contact contact])
+
+(defn render-contact [on-contact contact]
+  {:pre [(fn? on-contact) (map? contact) (:address contact)]}
+  [react/touchable-highlight {:underlay-color colors/white-transparent
+                              :on-press #(on-contact contact)}
+   [react/view {:flex 1
+                :flex-direction :row
+                :padding-right 23
+                :padding-left 16
+                :padding-top 12}
+    [react/view {:margin-top 3}
+     [photos/photo (:photo-path contact) {:size list.styles/image-size}]]
+    [react/view {:margin-left 16
+                 :flex 1}
+     [react/view {:accessibility-label :contact-name-text
+                  :margin-bottom 2}
+      [react/text {:style {:font-size 15
+                           :font-weight "500"
+                           :line-height 22
+                           :color colors/white}}
+       (:name contact)]]
+     [react/text {:style {:font-size 15
+                          :line-height 22
+                          :color "rgba(255,255,255,0.4)"}
+                  :accessibility-label :contact-address-text}
+      (ethereum/normalized-address (:address contact))]]]])
+
+(defn choose-contact-view [{:keys [contacts on-contact]}]
+  {:pre [(every? map? contacts) (fn? on-contact)]}
+  [react/view {:flex 1}
+   [list/flat-list {:data      contacts
+                    :key-fn    :address
+                    :render-fn (partial
+                                render-contact
+                                on-contact)}]])
+
+;; TODO clean up all dependencies here, leaving these in place until all behavior is verified on
+;; all platforms
+(defn- choose-address-contact [{:keys [modal? contacts transaction scroll advanced? network all-tokens amount-input network-status] :as opts}]
+
+  (let [{:keys [amount amount-text amount-error asset-error show-password-input? to to-name sufficient-funds?
+                sufficient-gas? in-progress? from-chat? symbol]} transaction
+        chain                        (ethereum/network->chain-keyword network)
+        native-currency              (tokens/native-currency chain)
+        {:keys [decimals] :as token} (tokens/asset-for all-tokens chain symbol)
+        online? (= :online network-status)]
+    [wallet.components/simple-screen {:avoid-keyboard? (not modal?)
+                                      :status-bar-type (if modal? :modal-wallet :wallet)}
+     [toolbar modal? (i18n/label :t/send-to)]
+     [simple-tab-navigator {:address  {:name "Address"
+                                       :component (choose-address-view
+                                                   {:chain chain
+                                                    :on-address
+                                                    #(re-frame/dispatch [:wallet/transaction-to-success %])})}
+                            :contacts {:name "Contacts"
+                                       :component (partial
+                                                   choose-contact-view
+                                                   {:contacts contacts
+                                                    :on-contact
+                                                    (fn [{:keys [address]}]
+                                                      (re-frame/dispatch [:wallet/transaction-to-success address]))})}}
+      :address]]))
+
 ;; MAIN SEND TRANSACTION VIEW
 (defn- send-transaction-view [{:keys [scroll] :as opts}]
   (let [amount-input (atom nil)
@@ -197,8 +360,7 @@
                               ;;NOTE(goranjovic): keyboardDidShow is for android and keyboardWillShow for ios
                               (.addListener react/keyboard "keyboardDidShow" handler)
                               (.addListener react/keyboard "keyboardWillShow" handler))
-      :reagent-render       (fn [opts] (render-send-transaction-view
-                                        (assoc opts :amount-input amount-input)))})))
+      :reagent-render       (fn [opts] [choose-address-contact (assoc opts :amount-input amount-input)])})))
 
 ;; SEND TRANSACTION FROM WALLET (CHAT)
 (defview send-transaction []
@@ -207,13 +369,15 @@
             network        [:account/network]
             scroll         (atom nil)
             network-status [:network-status]
-            all-tokens     [:wallet/all-tokens]]
+            all-tokens     [:wallet/all-tokens]
+            contacts       [:contacts/all-added-people-contacts]]
     [send-transaction-view {:modal?         false
                             :transaction    transaction
                             :scroll         scroll
                             :advanced?      advanced?
                             :network        network
                             :all-tokens     all-tokens
+                            :contacts       contacts
                             :network-status network-status}]))
 
 ;; SEND TRANSACTION FROM DAPP

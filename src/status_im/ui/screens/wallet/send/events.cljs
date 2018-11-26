@@ -10,6 +10,7 @@
             [status-im.native-module.core :as status]
             [status-im.ui.screens.navigation :as navigation]
             [status-im.ui.screens.wallet.db :as wallet.db]
+            [status-im.utils.ethereum.ens :as ens]
             [status-im.utils.ethereum.core :as ethereum]
             [status-im.utils.ethereum.erc20 :as erc20]
             [status-im.utils.ethereum.tokens :as tokens]
@@ -51,6 +52,26 @@
    (utils/set-timeout #(utils/show-popup (i18n/label :t/transaction-failed) message) 1000)))
 
 ;;;; Handlers
+;; CHOOSEN RECIPIENT
+(defn eth-name->address [chain recipient callback]
+  (if (ens/is-valid-eth-name? recipient)
+    (ens/get-addr (get @re-frame.db/app-db :web3)
+                  (get ens/ens-registries chain)
+                  recipient
+                  callback)
+    (callback recipient)))
+
+(defn chosen-recipient [chain recipient success-callback error-callback]
+  {:pre [(keyword? chain) (string? recipient)]}
+  (eth-name->address chain recipient
+                     #(if (ethereum/address? %)
+                        (success-callback %)
+                        (error-callback %))))
+
+(handlers/register-handler-fx
+ :wallet/transaction-to-success
+ (fn [{:keys [db]} [_ recipient-address]]
+   {:db (assoc-in db [:wallet :send-transaction :to] recipient-address)}))
 
 ;; SEND TRANSACTION
 (handlers/register-handler-fx
