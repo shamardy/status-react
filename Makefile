@@ -78,7 +78,7 @@ $(STATUS_GO_DRO_ARCH):
 
 prepare-ios: $(STATUS_GO_IOS_ARCH) ##@prepare Install and prepare iOS-specific dependencies
 	scripts/prepare-for-platform.sh ios
-	npm install
+	yarn install
 	unzip -q -o "$(STATUS_GO_IOS_ARCH)" -d "$(RCTSTATUS_DIR)"
 ifeq ($(OS),Darwin)
 	cd ios && pod install
@@ -86,7 +86,7 @@ endif
 
 prepare-android: $(STATUS_GO_DRO_ARCH) ##@prepare Install and prepare Android-specific dependencies
 	scripts/prepare-for-platform.sh android
-	npm install
+	yarn install
 	cd android && ./gradlew react-native-android:installArchives
 
 prepare-mobile: prepare-android prepare-ios ##@prepare Install and prepare mobile platform specific dependencies
