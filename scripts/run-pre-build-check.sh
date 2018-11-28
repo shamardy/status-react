@@ -15,9 +15,15 @@ else
   PLATFORM=$1
 fi
 
-npm_version=$(npm -v)
-if [[ $npm_version != "5.5.1" ]]; then
-  echo -e "${YELLOW}+ npm version $npm_version is installed. npm version 5.5.1 is recommended.${NC}"
+node_version=$(node -v)
+
+if [[ $node_version != "v9.3.0" ]]; then
+  echo -e "${YELLOW}+ node version $node_version is installed. node version v9.3.0 is recommended.${NC}"
+fi
+
+yarn_version=$(yarn -v)
+if [[ $yarn_version != "1.12.3" ]]; then
+  echo -e "${YELLOW}+ yarn version $yarn_version is installed. yarn version 1.12.3 is recommended.${NC}"
 fi
 
 if [[ $PLATFORM == 'android' ]]; then
