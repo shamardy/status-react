@@ -45,7 +45,7 @@ setup: ##@prepare Install all the requirements for status-react
 
 prepare-desktop: ##@prepare Install desktop platform dependencies and prepare workspace
 	scripts/prepare-for-platform.sh desktop
-	npm install
+	yarn install
 
 $(STATUS_GO_IOS_ARCH):
 	curl --fail --silent --location \
