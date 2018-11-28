@@ -12,6 +12,7 @@
             [status-im.ui.components.react :as react]
             [status-im.ui.screens.wallet.settings.views :as settings]
             [status-im.i18n :as i18n]
+            [status-im.utils.money :as money]
             [status-im.ui.components.colors :as colors]
             [status-im.ui.screens.navigation :as navigation]
             [status-im.utils.handlers :as handlers]
@@ -39,10 +40,49 @@
  (fn [_ [_ _ {:keys [value]}]]
    {::log value}))
 
+(re-frame/reg-fx
+ ::schedule-start
+ (fn [{:keys [interval on-created on-result]}]
+   (let [id (js/setInterval #(re-frame/dispatch (on-result {})) interval)]
+     (re-frame/dispatch (on-created {:value id})))))
+
+(handlers/register-handler-fx
+ :extensions/schedule-start
+ (fn [_ [_ _ m]]
+   {::schedule-start m}))
+
+(re-frame/reg-fx
+ ::schedule-cancel
+ (fn [{:keys [value]}]
+   (js/clearInterval value)))
+
+(handlers/register-handler-fx
+ :extensions/schedule-cancel
+ (fn [_ [_ _ m]]
+   {::schedule-cancel m}))
+
 (re-frame/reg-sub
  :extensions/identity
  (fn [_ [_ _ {:keys [value]}]]
    value))
+
+(re-frame/reg-sub
+ :extensions.wallet/balance
+ :<- [:wallet/all-tokens]
+ :<- [:network]
+ :<- [:balance]
+ (fn [[all-tokens network balance] [_ _ {token :token}]]
+   (let [{:keys [decimals]} (tokens/token-for (ethereum/network->chain-keyword network) all-tokens token)
+         value (get balance (keyword token))]
+     {:value        (money/token->unit value decimals)
+      :value-in-wei value})))
+
+(re-frame/reg-sub
+ :extensions.wallet/token
+ :<- [:wallet/all-tokens]
+ :<- [:network]
+ (fn [[all-tokens network] [_ _ {token :token}]]
+   (tokens/token-for (ethereum/network->chain-keyword network) all-tokens token)))
 
 (re-frame/reg-sub
  :extensions.wallet/tokens
@@ -59,10 +99,17 @@
  (fn [db [_ {id :id} {:keys [key]}]]
    (get-in db [:extensions/store id key])))
 
+(defn- empty-value? [o]
+  (cond
+    (seqable? o) (empty? o)
+    :else (nil? o)))
+
 (handlers/register-handler-fx
  :store/put
  (fn [{:keys [db]} [_ {id :id} {:keys [key value]}]]
-   {:db (assoc-in db [:extensions/store id key] value)}))
+   {:db (if (empty-value? value)
+          (update-in db [:extensions/store id] dissoc key)
+          (assoc-in db [:extensions/store id key] value))}))
 
 (defn- append [acc k v]
   (let [o (get acc k)]
@@ -190,13 +237,14 @@
  (fn [_ [_ _ m]]
    {::arithmetic m}))
 
-(defn button [{:keys [on-click disabled]} label]
-  [button/secondary-button (merge {:disabled? disabled}
+(defn button [{:keys [on-click enabled disabled] :as m} label]
+  [button/secondary-button (merge {:disabled? (or (when (contains? m :enabled) (or (nil? enabled) (false? enabled))) disabled)}
                                   (when on-click {:on-press #(re-frame/dispatch (on-click {}))})) label])
 
-(defn input [{:keys [on-change placeholder]}]
-  [react/text-input (merge {:placeholder placeholder
-                            :style {:width "100%"}}
+(defn input [{:keys [keyboard-type style on-change placeholder]}]
+  [react/text-input (merge {:placeholder placeholder}
+                           (when style {:style style})
+                           (when keyboard-type {:keyboard-type keyboard-type})
                            (when on-change
                              {:on-change-text #(re-frame/dispatch (on-change {:value %}))}))])
 
@@ -256,8 +304,8 @@
                 'text               {:value text}
                 'touchable-opacity  {:value touchable-opacity :properties {:on-press :event}}
                 'image              {:value image :properties {:uri :string}}
-                'input              {:value input :properties {:on-change :event :placeholder :string}}
-                'button             {:value button :properties {:disabled :boolean :on-click :event}}
+                'input              {:value input :properties {:on-change :event :placeholder :string :keyboard-type :string}}
+                'button             {:value button :properties {:enabled :boolean :disabled :boolean :on-click :event}}
                 'link               {:value link :properties {:uri :string}}
                 'list               {:value list :properties {:data :vector :item-view :view :key? :keyword}}
                 'checkbox           {:value checkbox :properties {:on-change :event :checked :boolean}}
@@ -268,6 +316,8 @@
    :queries    {'identity            {:value :extensions/identity :arguments {:value :map}}
                 'store/get           {:value :store/get :arguments {:key :string}}
                 'wallet/collectibles {:value :get-collectible-token :arguments {:token :string :symbol :string}}
+                'wallet/balance      {:value :extensions.wallet/balance :arguments {:token :string}}
+                'wallet/token        {:value :extensions.wallet/token :arguments {:token :string}}
                 'wallet/tokens       {:value :extensions.wallet/tokens :arguments {:filter :vector}}}
    :events     {'alert
                 {:permissions [:read]
@@ -303,6 +353,16 @@
                  :arguments   {:values    #{:plus :minus :times :divide}
                                :operation :keyword
                                :on-result :event}}
+                'schedule/start
+                {:permissions [:read]
+                 :value       :extensions/schedule-start
+                 :arguments   {:interval   :number
+                               :on-created :event
+                               :on-result  :event}}
+                'schedule/cancel
+                {:permissions [:read]
+                 :value       :extensions/schedule-cancel
+                 :arguments   {:value      :number}}
                 'json/parse
                 {:permissions [:read]
                  :value       :extensions/json-parse
@@ -316,11 +376,11 @@
                 'store/put
                 {:permissions [:read]
                  :value       :store/put
-                 :arguments   {:key :string :value :map}}
+                 :arguments   {:key :string :value :any}}
                 'store/append
                 {:permissions [:read]
                  :value       :store/append
-                 :arguments   {:key :string :value :map}}
+                 :arguments   {:key :string :value :any}}
                 'store/clear
                 {:permissions [:read]
                  :value       :store/clear
@@ -346,6 +406,11 @@
                  :arguments   {:hash        :string
                                :on-success  :event
                                :on-failure? :event}}
+                'ethereum/transaction-receipt
+                {:permissions [:read]
+                 :value       :extensions/ethereum-transaction-receipt
+                 :arguments   {:value     :string
+                               :on-result :event}}
                 'ethereum/send-transaction
                 {:permissions [:read]
                  :value       :extensions/ethereum-send-transaction

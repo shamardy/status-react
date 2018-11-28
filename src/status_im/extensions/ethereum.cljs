@@ -76,6 +76,44 @@
                                              :else result-str)]
                             (re-frame/dispatch (on-result (merge {:result result} (when %1 {:error %1})))))]})))
 
+(defn- parse-log [{:keys [address transactionHash blockHash transactionIndex topics blockNumber logIndex removed data]}]
+  {:address           address
+   :transaction-hash  transactionHash
+   :blockHash         blockHash
+   :transaction-index (abi-spec/hex-to-number transactionIndex)
+   :topics            topics ;; TODO parse topics
+   :block-number      (abi-spec/hex-to-number blockNumber)
+   :log-index         (abi-spec/hex-to-number logIndex)
+   :removed           removed
+   :data              data})
+
+(defn- parse-receipt [m]
+  (when m
+    (let [{:keys [status transactionHash transactionIndex blockHash blockNumber from to cumulativeGasUsed gasUsed contractAddress logs logsBloom]} m]
+      {:status              (abi-spec/hex-to-number status)
+       :transaction-hash    transactionHash
+       :transaction-index   (abi-spec/hex-to-number transactionIndex)
+       :block-hash          blockHash
+       :block-number        (abi-spec/hex-to-number blockNumber)
+       :from                from
+       :to                  to
+       :cumulative-gas-used (abi-spec/hex-to-number cumulativeGasUsed)
+       :gas-used            (abi-spec/hex-to-number gasUsed)
+       :contract-address    contractAddress
+       :logs                (map parse-log logs)
+       :logs-bloom          logsBloom})))
+
+(handlers/register-handler-fx
+ :extensions/ethereum-transaction-receipt
+ (fn [_ [_ _ {:keys [value on-result]}]]
+   (let [args {:jsonrpc "2.0"
+               :method constants/web3-transaction-receipt
+               :params  [value]}
+         payload (types/clj->json args)]
+     (status/call-private-rpc payload #(let [{:keys [error result]} (types/json->clj %1)
+                                             response (merge {:result (parse-receipt result)} (when error {:error error}))]
+                                         (re-frame/dispatch (on-result response)))))))
+
 ;; eth_getLogs implementation
 
 (defn- event-topic-enc [event params]
